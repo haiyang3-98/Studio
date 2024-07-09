@@ -17,28 +17,12 @@ namespace AssetStudio
         {
             reader.ReadUInt32();
 
-            var infoBytes = reader.ReadBytes(0x10);
-            var infoKey = reader.ReadBytes(0x10);
-            reader.Position += 1;
-
-            var signatureBytes = reader.ReadBytes(0x10);
-            var signatureKey = reader.ReadBytes(0x10);
-            reader.Position += 1;
-
-            DecryptKey(signatureKey, signatureBytes);
-
-            var str = Encoding.UTF8.GetString(signatureBytes);
-            Logger.Verbose($"Decrypted signature is {str}");
-            if (str != Signature)
-            {
-                throw new Exception($"Invalid Signature, Expected {Signature} but found {str} instead");
-            }
-
-            DecryptKey(infoKey, infoBytes);
+            var infoBytes = reader.ReadBytes(0x8);
+            reader.AlignStream();
 
             infoBytes = infoBytes.ToUInt4Array();
-            infoBytes.AsSpan(0, 0x10).CopyTo(Index);
-            var subBytes = infoBytes.AsSpan(0x10, 0x10);
+            Index = Array.Empty<byte>();
+            var subBytes = infoBytes.AsSpan(0, 0x10);
             for (var i = 0; i < subBytes.Length; i++)
             {
                 var idx = (i % 4 * 4) + (i / 4);
@@ -70,8 +54,10 @@ namespace AssetStudio
         public void DecryptBlock(Span<byte> bytes, int size, int index)
         {
             var offset = 0;
+            int count = 0;
             while (offset < size)
             {
+                if (count++ >= 0x14) break;
                 offset += Decrypt(bytes.Slice(offset), index++, size - offset);
             }
         }
@@ -89,7 +75,7 @@ namespace AssetStudio
         private int DecryptByte(Span<byte> bytes, ref int offset, ref int index)
         {
             var b = Sub[((index >> 2) & 3) + 4] + Sub[index & 3] + Sub[((index >> 4) & 3) + 8] + Sub[((byte)index >> 6) + 12];
-            bytes[offset] = (byte)((Index[bytes[offset] & 0xF] - b) & 0xF | 0x10 * (Index[bytes[offset] >> 4] - b));
+            bytes[offset] = byte.RotateLeft(bytes[offset], b & 7);
             b = bytes[offset];
             offset++;
             index++;
